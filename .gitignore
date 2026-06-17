@@ -1,0 +1,72 @@
+# ===========================
+# Python / Backend
+# ===========================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+dist/
+build/
+.eggs/
+*.egg
+
+# Virtual environments
+venv/
+.venv/
+env/
+.env
+
+# Uploaded files (user uploads)
+backend/static/uploads/
+backend/static/generated/
+
+# ===========================
+# Node.js / Frontend
+# ===========================
+node_modules/
+.next/
+out/
+.vercel
+
+# Next.js
+frontend/.next/
+frontend/out/
+
+# ===========================
+# Environment / Secrets
+# ===========================
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+
+# ===========================
+# IDE / Editor
+# ===========================
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# ===========================
+# Modal
+# ===========================
+.modal.toml
+
+# ===========================
+# Output / Test artifacts
+# ===========================
+output_test.glb
+output/
+
+# ===========================
+# Logs
+# ===========================
+*.log
+logs/
+CHECKLIST_TRIPSOR.md
