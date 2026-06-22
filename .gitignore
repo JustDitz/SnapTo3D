@@ -71,3 +71,12 @@ output/
 logs/
 CHECKLIST_TRIPOSR.md
 prd.md
+
+# ===========================
+# AI Tool Configs
+# ===========================
+.agents/
+.claude/
+.gemini/
+.impeccable/
+.qoder/

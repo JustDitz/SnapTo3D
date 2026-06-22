@@ -224,6 +224,17 @@ export default function UploadZone({ onUploadComplete }: UploadZoneProps) {
         )}
       </div>
 
+      {/* Background recommendation hint */}
+      <div className="flex items-start gap-2 px-3 py-2 rounded-lg bg-amber-900/15 border border-amber-800/20">
+        <svg className="w-4 h-4 text-amber-400 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+            d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+        </svg>
+        <p className="text-xs text-amber-300/80 leading-relaxed">
+          <span className="font-medium text-amber-300">Tips:</span> Gunakan foto dengan latar belakang polos (putih/abu-abu) untuk hasil rekonstruksi 3D terbaik.
+        </p>
+      </div>
+
       {/* Preview thumbnail + filename */}
       {preview && (
         <div className="flex items-center gap-3 p-3 rounded-lg bg-[var(--bg-secondary)]">

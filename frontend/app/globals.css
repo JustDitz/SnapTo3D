@@ -8,12 +8,16 @@
   --text-primary: #f0f0f5;
   --text-secondary: #a0a0b0;
   --accent: #4c6ef5;
+  /* PRD font stack */
+  --font-sans: 'Geist Mono', ui-monospace, monospace;
+  --font-serif: serif;
+  /* --font-mono is injected by next/font in layout.tsx */
 }
 
 body {
   background-color: var(--bg-primary);
   color: var(--text-primary);
-  font-family: "Inter", system-ui, sans-serif;
+  font-family: var(--font-sans);
 }
 
 /* Custom scrollbar for dark theme */
