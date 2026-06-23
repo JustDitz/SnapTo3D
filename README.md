@@ -2,7 +2,7 @@
 
 <div>
   <img src="https://img.shields.io/badge/Next.js-15-black?style=flat-square&logo=next.js" alt="Next.js">
-  <img src="https://img.shields.io/badge/FastAPI-0.115-009688?style=flat-square&logo=fastapi" alt="FastAPI">
+  <img src="https://img.shields.io/badge/FastAPI-0.136.3-009688?style=flat-square&logo=fastapi" alt="FastAPI">
   <img src="https://img.shields.io/badge/Three.js-r170-white?style=flat-square&logo=threedotjs" alt="Three.js">
   <img src="https://img.shields.io/badge/GPU-Modal_Labs-7B61FF?style=flat-square" alt="Modal Labs">
   <img src="https://img.shields.io/badge/AI-TripoSR-FF6B6B?style=flat-square" alt="TripoSR">
@@ -66,28 +66,42 @@ A web platform designed for Indonesian MSMEs (UMKM) to create 3D product present
 ### Prerequisites
 
 - **Node.js** 18+ and npm
-- **Python** 3.11+
-- **Modal CLI** — `pip install modal` then `modal setup`
+- **Python** 3.12+
+- **uv** — Python package and project manager
+
+Install `uv` if it is not available yet:
+
+```bash
+# macOS/Linux
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# Windows (PowerShell)
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+```
+
+Verify the installation with `uv --version`.
 
 ### Backend
 
 ```bash
 cd backend
 
-# Create a virtual environment
-python -m venv .venv
-.venv\Scripts\activate        # Windows
-# source .venv/bin/activate   # macOS/Linux
+# Create .venv and install dependencies from uv.lock
+uv sync
 
-# Install dependencies
-python -m pip install -r requirements.txt
+# Connect the Modal CLI to your account (first setup only)
+uv run modal setup
 
 # Deploy the GPU inference app to Modal
-modal deploy modal_app.py
+uv run modal deploy modal_app.py
 
-# Start the FastAPI server
-python -m uvicorn main:app --reload --host 0.0.0.0 --port 8000
+# Start the FastAPI development server
+uv run fastapi dev
 ```
+
+`uv sync` automatically creates the backend's `.venv`, so manual activation is not required. To add another backend dependency, run `uv add <package>` from the `backend` directory.
+
+For production, use `uv run fastapi run`. The FastAPI CLI reads the `main:app` entrypoint from `pyproject.toml` and uses Uvicorn internally.
 
 ### Frontend
 
@@ -110,7 +124,7 @@ Open [http://localhost:3000](http://localhost:3000) in your browser.
 
 ```bash
 cd backend
-modal run modal_app.py::test_inference --input-path path/to/photo.jpg
+uv run modal run modal_app.py::test_inference --input-path path/to/photo.jpg
 ```
 
 This sends an image to Modal's GPU cluster and saves the output as `output_test.glb`.
@@ -133,7 +147,8 @@ FP/
 ├── backend/
 │   ├── main.py              # FastAPI app — upload, task polling, static serving
 │   ├── modal_app.py         # Modal GPU app — TripoSR inference pipeline
-│   ├── requirements.txt     # Python dependencies
+│   ├── pyproject.toml        # Backend metadata and Python dependencies
+│   ├── uv.lock               # Reproducible dependency lockfile
 │   └── static/              # Uploaded images + generated GLB files
 ├── frontend/
 │   ├── app/

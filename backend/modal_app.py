@@ -5,8 +5,8 @@ Deployed to Modal cloud. Runs TripoSR + rembg on GPU.
 Architecture:
   Local FastAPI (orchestrator) → Modal Function (GPU) → returns GLB bytes
 
-Deploy:  modal deploy modal_app.py
-Test:    modal run modal_app.py::test_inference --input-path photo.jpg
+Deploy:  uv run modal deploy modal_app.py
+Test:    uv run modal run modal_app.py::test_inference --input-path photo.jpg
 """
 
 import logging
@@ -144,7 +144,7 @@ class TripoSRInference:
 def test_inference(input_path: str):
     """
     Eksekusi perintah pengujian lewat terminal lokal:
-    modal run modal_app.py::test_inference --input-path foto_produk.jpg
+    uv run modal run modal_app.py::test_inference --input-path foto_produk.jpg
     """
     import os
 
