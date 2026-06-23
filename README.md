@@ -24,7 +24,7 @@ A web platform designed for Indonesian MSMEs (UMKM) to create 3D product present
 
 ## Features
 
-- **Drag-and-Drop Upload** — Upload a product photo (JPEG, PNG, WebP up to 10 MB) with instant preview and client-side validation.
+- **Flexible Input Flow** — Start from a product photo for AI reconstruction, or enter directly at the 3D model stage with an existing GLB file.
 - **AI-Powered 3D Reconstruction** — TripoSR neural network running on a serverless GPU (Modal Labs) converts a single image into a GLB mesh in ~15–30 seconds.
 - **Interactive 3D Viewer** — Three.js viewport with orbit controls (rotate, zoom, pan), auto-centering, ACES filmic tone mapping, and multi-light setup.
 - **Real-Time Task Polling** — Progress indicators track each pipeline stage from queue to completion.
@@ -60,6 +60,8 @@ A web platform designed for Indonesian MSMEs (UMKM) to create 3D product present
 4. Modal container runs: background removal (rembg) → TripoSR inference → marching cubes → GLB export
 5. FastAPI saves the GLB locally and marks the task as done
 6. Frontend polls `GET /api/task/{id}` every 2 seconds, then loads the GLB into the Three.js viewer
+
+Users who already have a GLB can enter directly at step 2, **Model 3D**, then continue through the same lighting, animation, and video export flow.
 
 ## Getting Started
 

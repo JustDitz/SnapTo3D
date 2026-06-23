@@ -1,7 +1,8 @@
 "use client";
 
-import React, { useState, useCallback, useRef } from "react";
+import React, { useState, useCallback, useEffect, useRef } from "react";
 import UploadZone from "@/components/UploadZone";
+import ModelUploadZone from "@/components/ModelUploadZone";
 import ThreeScene from "@/components/ThreeScene";
 import type { LightingSettings, AnimationSettings, ThreeSceneHandle } from "@/components/ThreeScene";
 import LightingControls from "@/components/LightingControls";
@@ -24,6 +25,8 @@ const DEFAULT_ANIMATION: AnimationSettings = {
   rotationSpeed: 1.0,
 };
 
+type ModelStatus = "idle" | "loading" | "ready" | "error";
+
 // ---------------------------------------------------------------------------
 // Page: SnapTo3D Main Layout
 // Left panel: upload zone + controls
@@ -31,32 +34,65 @@ const DEFAULT_ANIMATION: AnimationSettings = {
 // Responsive: stacks vertically on mobile, side-by-side on desktop
 // ---------------------------------------------------------------------------
 export default function HomePage() {
-  // GLB model URL — null until user uploads an image
   const [modelUrl, setModelUrl] = useState<string | null>(null);
+  const [modelName, setModelName] = useState<string | null>(null);
+  const [modelStatus, setModelStatus] = useState<ModelStatus>("idle");
+  const [modelError, setModelError] = useState<string | null>(null);
   const [lighting, setLighting] = useState<LightingSettings>(DEFAULT_LIGHTING);
   const [animation, setAnimation] = useState<AnimationSettings>(DEFAULT_ANIMATION);
   const [videoDuration, setVideoDuration] = useState(10);
 
   // Ref to access Three.js canvas for video capture
   const threeSceneRef = useRef<ThreeSceneHandle>(null);
+  const localModelUrlRef = useRef<string | null>(null);
 
   // Video exporter hook
   const videoExporter = useVideoExporter({ duration: videoDuration });
 
-  /**
-   * Called by UploadZone after successful backend upload.
-   * Sets the GLB URL which triggers ThreeScene to load the model.
-   */
+  const releaseLocalModelUrl = useCallback(() => {
+    if (localModelUrlRef.current) {
+      URL.revokeObjectURL(localModelUrlRef.current);
+      localModelUrlRef.current = null;
+    }
+  }, []);
+
+  useEffect(() => releaseLocalModelUrl, [releaseLocalModelUrl]);
+
+  const showModel = useCallback(
+    (url: string, name: string, isLocalFile = false) => {
+      releaseLocalModelUrl();
+      if (isLocalFile) localModelUrlRef.current = url;
+      setModelUrl(url);
+      setModelName(name);
+      setModelStatus("loading");
+      setModelError(null);
+    },
+    [releaseLocalModelUrl]
+  );
+
   const handleUploadComplete = useCallback((glbUrl: string) => {
-    setModelUrl(glbUrl);
+    showModel(glbUrl, "snapto3d-model.glb");
+  }, [showModel]);
+
+  const handleModelSelected = useCallback((file: File) => {
+    showModel(URL.createObjectURL(file), file.name, true);
+  }, [showModel]);
+
+  const handleModelLoad = useCallback(() => {
+    setModelStatus("ready");
+  }, []);
+
+  const handleModelError = useCallback((message: string) => {
+    setModelStatus("error");
+    setModelError(message);
   }, []);
 
   /**
    * Load the stub model directly for dev/testing without uploading.
    */
   const handleLoadDemo = useCallback(() => {
-    setModelUrl("/static/sample.glb");
-  }, []);
+    showModel("/static/sample.glb", "sample.glb");
+  }, [showModel]);
 
   /**
    * Download the current GLB model file.
@@ -69,7 +105,7 @@ export default function HomePage() {
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `snapto3d-model-${Date.now()}.glb`;
+      a.download = modelName ?? `snapto3d-model-${Date.now()}.glb`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
@@ -77,7 +113,7 @@ export default function HomePage() {
     } catch (err) {
       console.error("[Download] Failed to download GLB:", err);
     }
-  }, [modelUrl]);
+  }, [modelName, modelUrl]);
 
   /**
    * Download the current model as OBJ file (client-side conversion).
@@ -102,7 +138,7 @@ export default function HomePage() {
    * Start video recording from the Three.js canvas.
    */
   const handleRenderVideo = useCallback(() => {
-    if (!threeSceneRef.current || !modelUrl) return;
+    if (!threeSceneRef.current || modelStatus !== "ready") return;
     const getCanvas = () => threeSceneRef.current?.getCanvas() ?? null;
 
     // Temporarily force auto-rotate during recording, then restore
@@ -115,7 +151,7 @@ export default function HomePage() {
     };
 
     videoExporter.startRecording(getCanvas, onRotateOverride, onRotateRestore);
-  }, [modelUrl, animation.autoRotate, videoExporter]);
+  }, [modelStatus, animation.autoRotate, videoExporter]);
 
   return (
     <main className="min-h-screen flex flex-col">
@@ -136,18 +172,37 @@ export default function HomePage() {
       <div className="flex-1 flex flex-col lg:flex-row">
         {/* Left panel: Upload + Controls */}
         <aside className="w-full lg:w-[380px] xl:w-[420px] flex-shrink-0 border-b lg:border-b-0 lg:border-r border-gray-800 p-6 flex flex-col gap-6 overflow-y-auto max-h-[calc(100vh-57px)]">
-          {/* Section title */}
           <div>
             <h2 className="text-base font-medium text-gray-100">
-              Unggah Foto Produk
+              Foto → Model 3D → Video
             </h2>
             <p className="text-sm text-gray-500 mt-1">
-              Seret foto produk Anda dan dapatkan model 3D interaktif.
+              Buat model dari foto, lalu atur dan export sebagai video.
             </p>
           </div>
 
-          {/* Upload zone */}
-          <UploadZone onUploadComplete={handleUploadComplete} />
+          <div className="grid grid-cols-[1fr_auto_1fr_auto_1fr] items-center gap-2 text-center text-[11px] text-gray-400">
+            <span className="rounded-md bg-gray-900 px-2 py-2">1. Foto</span>
+            <span aria-hidden="true">→</span>
+            <span className="rounded-md bg-gray-900 px-2 py-2">2. Model 3D</span>
+            <span aria-hidden="true">→</span>
+            <span className="rounded-md bg-gray-900 px-2 py-2">3. Video</span>
+          </div>
+
+          <div>
+            <h3 className="mb-3 text-xs font-medium uppercase tracking-wider text-gray-400">
+              1. Buat Model dari Foto
+            </h3>
+            <UploadZone onUploadComplete={handleUploadComplete} />
+          </div>
+
+          <div className="flex items-center gap-3" aria-hidden="true">
+            <div className="h-px flex-1 bg-gray-800" />
+            <span className="text-[11px] text-gray-500">atau masuk langsung ke tahap 2</span>
+            <div className="h-px flex-1 bg-gray-800" />
+          </div>
+
+          <ModelUploadZone onModelSelected={handleModelSelected} />
 
           {/* Demo button — load stub model for testing */}
           <button
@@ -159,7 +214,7 @@ export default function HomePage() {
           </button>
 
           {/* Download GLB button */}
-          {modelUrl && (
+          {modelStatus === "ready" && (
             <div className="flex gap-2">
               <button
                 onClick={handleDownloadGLB}
@@ -189,17 +244,34 @@ export default function HomePage() {
           )}
 
           {/* Status indicator */}
-          {modelUrl && (
+          {modelStatus === "loading" && (
+            <div className="flex items-center gap-2 rounded-lg border border-brand-800/30 bg-brand-900/20 px-3 py-2">
+              <div className="h-3 w-3 animate-spin rounded-full border-2 border-brand-400 border-t-transparent" />
+              <span className="text-xs text-brand-300">Memuat model 3D...</span>
+            </div>
+          )}
+
+          {modelStatus === "ready" && (
             <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-green-900/20 border border-green-800/30">
               <div className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
-              <span className="text-xs text-green-300">
-                Model 3D aktif — gunakan mouse untuk memutar
+              <span className="min-w-0 truncate text-xs text-green-300">
+                {modelName} aktif — gunakan mouse untuk memutar
               </span>
             </div>
           )}
 
+          {modelStatus === "error" && (
+            <p className="rounded-lg border border-red-800/30 bg-red-900/20 px-3 py-2 text-xs text-red-300">
+              {modelError}
+            </p>
+          )}
+
           {/* Divider */}
           <hr className="border-gray-800" />
+
+          <h3 className="text-xs font-medium uppercase tracking-wider text-gray-400">
+            2. Atur Model 3D
+          </h3>
 
           {/* Lighting controls */}
           <LightingControls settings={lighting} onChange={setLighting} />
@@ -221,11 +293,11 @@ export default function HomePage() {
           {/* Export section */}
           <div className="flex flex-col gap-3">
             <h3 className="text-xs font-medium text-gray-400 uppercase tracking-wider">
-              Export
+              3. Generate Video
             </h3>
 
             {/* Render Video button */}
-            {modelUrl && !videoExporter.isRecording && (
+            {modelStatus === "ready" && !videoExporter.isRecording && (
               <button
                 onClick={handleRenderVideo}
                 className="w-full py-2.5 px-4 rounded-lg bg-purple-600 hover:bg-purple-700
@@ -296,6 +368,8 @@ export default function HomePage() {
               modelUrl={modelUrl}
               lighting={lighting}
               animation={animation}
+              onModelLoad={handleModelLoad}
+              onModelError={handleModelError}
             />
           </div>
 

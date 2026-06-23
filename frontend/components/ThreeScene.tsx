@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useRef, useEffect, useCallback, forwardRef, useImperativeHandle } from "react";
+import React, { useRef, useEffect, forwardRef, useImperativeHandle } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
@@ -28,6 +28,8 @@ interface ThreeSceneProps {
   lighting: LightingSettings;
   /** Animation configuration */
   animation: AnimationSettings;
+  onModelLoad?: () => void;
+  onModelError?: (message: string) => void;
 }
 
 /** Methods exposed to parent via ref */
@@ -38,13 +40,28 @@ export interface ThreeSceneHandle {
   exportOBJ: () => string | null;
 }
 
+function disposeModel(model: THREE.Object3D) {
+  model.traverse((child) => {
+    if (!(child instanceof THREE.Mesh)) return;
+
+    child.geometry.dispose();
+    const materials = Array.isArray(child.material) ? child.material : [child.material];
+    materials.forEach((material) => {
+      Object.values(material).forEach((value) => {
+        if (value instanceof THREE.Texture) value.dispose();
+      });
+      material.dispose();
+    });
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Component: ThreeScene
 // Initializes a Three.js canvas with lighting, orbit controls, and GLB loading.
 // Uses raw Three.js (not R3F) for full lifecycle control and DOM compatibility.
 // ---------------------------------------------------------------------------
 const ThreeScene = forwardRef<ThreeSceneHandle, ThreeSceneProps>(
-  function ThreeScene({ modelUrl, lighting, animation }, ref) {
+  function ThreeScene({ modelUrl, lighting, animation, onModelLoad, onModelError }, ref) {
     const containerRef = useRef<HTMLDivElement>(null);
     const sceneRef = useRef<{
       renderer: THREE.WebGLRenderer;
@@ -176,7 +193,12 @@ const ThreeScene = forwardRef<ThreeSceneHandle, ThreeSceneProps>(
     return () => {
       window.removeEventListener("resize", onResize);
       cancelAnimationFrame(sceneRef.current?.animationId ?? animationId);
+      if (sceneRef.current?.currentModel) {
+        disposeModel(sceneRef.current.currentModel);
+      }
       controls.dispose();
+      shadowPlane.geometry.dispose();
+      (shadowPlane.material as THREE.Material).dispose();
       renderer.dispose();
       if (container.contains(renderer.domElement)) {
         container.removeChild(renderer.domElement);
@@ -221,40 +243,39 @@ const ThreeScene = forwardRef<ThreeSceneHandle, ThreeSceneProps>(
     ctx.shadowPlane.visible = lighting.shadowEnabled;
   }, [lighting.posX, lighting.posY, lighting.posZ, lighting.intensity, lighting.shadowEnabled]);
 
-  // -------------------------------------------------------------------------
   // Load / swap GLB model when modelUrl changes
-  // -------------------------------------------------------------------------
-  const loadModel = useCallback((url: string) => {
+  useEffect(() => {
     const ctx = sceneRef.current;
-    if (!ctx) return;
+    if (!ctx || !modelUrl) return;
+
+    let cancelled = false;
 
     const loader = new GLTFLoader();
     loader.load(
-      url,
+      modelUrl,
       (gltf) => {
-        // Remove previous model if any
-        if (ctx.currentModel) {
-          ctx.scene.remove(ctx.currentModel);
-          // Dispose geometries and materials to free GPU memory
-          ctx.currentModel.traverse((child) => {
-            if (child instanceof THREE.Mesh) {
-              child.geometry.dispose();
-              if (Array.isArray(child.material)) {
-                child.material.forEach((m) => m.dispose());
-              } else {
-                child.material.dispose();
-              }
-            }
-          });
+        if (cancelled) {
+          disposeModel(gltf.scene);
+          return;
         }
 
         const model = gltf.scene;
-
-        // Auto-center and scale model to fit view
         const box = new THREE.Box3().setFromObject(model);
         const size = box.getSize(new THREE.Vector3());
         const center = box.getCenter(new THREE.Vector3());
         const maxDim = Math.max(size.x, size.y, size.z);
+
+        if (box.isEmpty() || !Number.isFinite(maxDim) || maxDim <= 0) {
+          disposeModel(model);
+          onModelError?.("Model GLB tidak memiliki geometri yang dapat ditampilkan.");
+          return;
+        }
+
+        if (ctx.currentModel) {
+          ctx.scene.remove(ctx.currentModel);
+          disposeModel(ctx.currentModel);
+        }
+
         const scale = 2 / maxDim;
         model.scale.setScalar(scale);
         model.position.sub(center.multiplyScalar(scale));
@@ -273,20 +294,20 @@ const ThreeScene = forwardRef<ThreeSceneHandle, ThreeSceneProps>(
         // Reset camera target to model center
         ctx.controls.target.set(0, size.y * scale * 0.5, 0);
         ctx.controls.update();
+        onModelLoad?.();
       },
-      undefined, // progress callback (unused)
+      undefined,
       (error) => {
+        if (cancelled) return;
         console.error("[ThreeScene] GLB load error:", error);
+        onModelError?.("Model GLB gagal dibaca. Pastikan file tidak rusak.");
       }
     );
-  }, []);
 
-  // React to modelUrl prop changes
-  useEffect(() => {
-    if (modelUrl) {
-      loadModel(modelUrl);
-    }
-  }, [modelUrl, loadModel]);
+    return () => {
+      cancelled = true;
+    };
+  }, [modelUrl, onModelError, onModelLoad]);
 
     // Expose canvas element and OBJ exporter to parent
     useImperativeHandle(ref, () => ({

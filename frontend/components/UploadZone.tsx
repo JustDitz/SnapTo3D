@@ -34,6 +34,13 @@ export default function UploadZone({ onUploadComplete }: UploadZoneProps) {
   const [taskStatus, setTaskStatus] = useState<TaskStatus | null>(null);
   const [taskProgress, setTaskProgress] = useState<string>("");
   const inputRef = useRef<HTMLInputElement>(null);
+  const previewUrlRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current);
+    };
+  }, []);
 
   // -------------------------------------------------------------------------
   // Poll task status every 2 seconds until done/failed
@@ -88,8 +95,9 @@ export default function UploadZone({ onUploadComplete }: UploadZoneProps) {
         return;
       }
 
-      // Show preview
-      setPreview(URL.createObjectURL(file));
+      if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current);
+      previewUrlRef.current = URL.createObjectURL(file);
+      setPreview(previewUrlRef.current);
       setFileName(file.name);
 
       // Upload

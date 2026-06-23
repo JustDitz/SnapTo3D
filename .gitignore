@@ -32,6 +32,7 @@ out/
 # Next.js
 frontend/.next/
 frontend/out/
+*.tsbuildinfo
 
 # ===========================
 # Environment / Secrets

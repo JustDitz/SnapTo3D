@@ -44,16 +44,24 @@ export function useVideoExporter({ duration, forceRotate = true }: UseVideoExpor
     ) => {
       abortRef.current = false;
       setState({ isRecording: true, progress: 0, elapsedSeconds: 0, error: null });
+      let stream: MediaStream | null = null;
+      let shouldRestoreRotation = false;
 
       try {
         const canvas = getCanvas();
         if (!canvas) throw new Error("Canvas not available. Load a 3D model first.");
+        if (typeof MediaRecorder === "undefined") {
+          throw new Error("Browser ini belum mendukung perekaman video.");
+        }
 
         // Force rotation during recording
-        if (forceRotate) onRotateOverride?.();
+        if (forceRotate) {
+          onRotateOverride?.();
+          shouldRestoreRotation = true;
+        }
 
         // Capture canvas stream at 30 FPS
-        const stream = canvas.captureStream(30);
+        stream = canvas.captureStream(30);
         const mimeType = MediaRecorder.isTypeSupported("video/webm;codecs=vp9")
           ? "video/webm;codecs=vp9"
           : "video/webm";
@@ -83,40 +91,40 @@ export function useVideoExporter({ duration, forceRotate = true }: UseVideoExpor
 
         // Wait for recording to complete
         const blob = await new Promise<Blob>((resolve, reject) => {
-          recorder.onstop = () => {
+          let timeout: ReturnType<typeof setTimeout>;
+          let abortCheck: ReturnType<typeof setInterval>;
+          const clearTimers = () => {
             clearInterval(progressInterval);
+            clearInterval(abortCheck);
+            clearTimeout(timeout);
+          };
+
+          recorder.onstop = () => {
+            clearTimers();
             const fullBlob = new Blob(chunks, { type: mimeType });
             resolve(fullBlob);
           };
           recorder.onerror = () => {
-            clearInterval(progressInterval);
+            clearTimers();
             reject(new Error("MediaRecorder error"));
           };
 
           recorder.start(100); // collect data every 100ms
 
           // Auto-stop after duration
-          const timeout = setTimeout(() => {
+          timeout = setTimeout(() => {
             if (recorder.state === "recording") {
               recorder.stop();
             }
           }, durationMs);
 
           // Allow manual abort
-          const abortCheck = setInterval(() => {
+          abortCheck = setInterval(() => {
             if (abortRef.current) {
-              clearTimeout(timeout);
-              clearInterval(abortCheck);
               if (recorder.state === "recording") recorder.stop();
             }
           }, 100);
         });
-
-        // Restore rotation state
-        if (forceRotate) onRotateRestore?.();
-
-        // Stop all tracks
-        stream.getTracks().forEach((t) => t.stop());
 
         if (abortRef.current) {
           setState({ isRecording: false, progress: 0, elapsedSeconds: 0, error: null });
@@ -140,6 +148,9 @@ export function useVideoExporter({ duration, forceRotate = true }: UseVideoExpor
           isRecording: false,
           error: err instanceof Error ? err.message : "Recording failed",
         }));
+      } finally {
+        if (shouldRestoreRotation) onRotateRestore?.();
+        stream?.getTracks().forEach((track) => track.stop());
       }
     },
     [duration, forceRotate]
