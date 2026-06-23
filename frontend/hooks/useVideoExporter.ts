@@ -10,18 +10,29 @@ export interface VideoExporterState {
   error: string | null;
 }
 
+export type VideoFormat = "auto" | "mp4" | "webm";
+
+const FORMAT_MIME_TYPES = {
+  mp4: ["video/mp4;codecs=avc1.42E01E", "video/mp4"],
+  webm: ["video/webm;codecs=vp9", "video/webm;codecs=vp8", "video/webm"],
+} as const;
+
+export function isVideoFormatSupported(format: "mp4" | "webm") {
+  if (typeof MediaRecorder === "undefined") return false;
+  return FORMAT_MIME_TYPES[format].some((type) => MediaRecorder.isTypeSupported(type));
+}
+
 interface UseVideoExporterOptions {
   /** Duration of the video in seconds */
   duration: number;
-  /** Force auto-rotate during recording even if user has it off */
-  forceRotate?: boolean;
+  format: VideoFormat;
 }
 
 // ---------------------------------------------------------------------------
 // Hook: useVideoExporter
-// Captures a Three.js canvas stream via MediaRecorder and downloads as WebM.
+// Captures a Three.js canvas stream via MediaRecorder and downloads the result.
 // ---------------------------------------------------------------------------
-export function useVideoExporter({ duration, forceRotate = true }: UseVideoExporterOptions) {
+export function useVideoExporter({ duration, format }: UseVideoExporterOptions) {
   const [state, setState] = useState<VideoExporterState>({
     isRecording: false,
     progress: 0,
@@ -34,18 +45,19 @@ export function useVideoExporter({ duration, forceRotate = true }: UseVideoExpor
   /**
    * Start recording the canvas for the specified duration.
    * @param getCanvas - function that returns the HTMLCanvasElement
-   * @param onRotateOverride - callback to temporarily enable auto-rotate
+   * @param onCaptureStart - prepares the scene before recording
+   * @param onCaptureEnd - restores the scene after recording
    */
   const startRecording = useCallback(
     async (
       getCanvas: () => HTMLCanvasElement | null,
-      onRotateOverride?: () => void,
-      onRotateRestore?: () => void,
+      onCaptureStart?: () => void,
+      onCaptureEnd?: () => void,
     ) => {
       abortRef.current = false;
       setState({ isRecording: true, progress: 0, elapsedSeconds: 0, error: null });
       let stream: MediaStream | null = null;
-      let shouldRestoreRotation = false;
+      let shouldCleanup = false;
 
       try {
         const canvas = getCanvas();
@@ -53,22 +65,33 @@ export function useVideoExporter({ duration, forceRotate = true }: UseVideoExpor
         if (typeof MediaRecorder === "undefined") {
           throw new Error("Browser ini belum mendukung perekaman video.");
         }
-
-        // Force rotation during recording
-        if (forceRotate) {
-          onRotateOverride?.();
-          shouldRestoreRotation = true;
+        if (typeof canvas.captureStream !== "function") {
+          throw new Error("Browser ini belum mendukung perekaman canvas.");
         }
+
+        onCaptureStart?.();
+        shouldCleanup = true;
 
         // Capture canvas stream at 30 FPS
         stream = canvas.captureStream(30);
-        const mimeType = MediaRecorder.isTypeSupported("video/webm;codecs=vp9")
-          ? "video/webm;codecs=vp9"
-          : "video/webm";
+        const preferredTypes =
+          format === "auto"
+            ? [...FORMAT_MIME_TYPES.mp4, ...FORMAT_MIME_TYPES.webm]
+            : FORMAT_MIME_TYPES[format];
+        const mimeType = preferredTypes.find((type) => MediaRecorder.isTypeSupported(type));
+
+        if (!mimeType) {
+          const label = format === "auto" ? "Video" : format.toUpperCase();
+          throw new Error(`${label} tidak didukung browser ini.`);
+        }
+
+        const videoBitsPerSecond = Math.max(canvas.width, canvas.height) >= 1920
+          ? 8_000_000
+          : 5_000_000;
 
         const recorder = new MediaRecorder(stream, {
           mimeType,
-          videoBitsPerSecond: 5_000_000, // 5 Mbps for good quality
+          videoBitsPerSecond,
         });
 
         const chunks: Blob[] = [];
@@ -101,7 +124,7 @@ export function useVideoExporter({ duration, forceRotate = true }: UseVideoExpor
 
           recorder.onstop = () => {
             clearTimers();
-            const fullBlob = new Blob(chunks, { type: mimeType });
+            const fullBlob = new Blob(chunks, { type: recorder.mimeType || mimeType });
             resolve(fullBlob);
           };
           recorder.onerror = () => {
@@ -109,7 +132,13 @@ export function useVideoExporter({ duration, forceRotate = true }: UseVideoExpor
             reject(new Error("MediaRecorder error"));
           };
 
-          recorder.start(100); // collect data every 100ms
+          try {
+            recorder.start(100); // collect data every 100ms
+          } catch {
+            clearTimers();
+            reject(new Error("Perekaman video gagal dimulai."));
+            return;
+          }
 
           // Auto-stop after duration
           timeout = setTimeout(() => {
@@ -135,7 +164,8 @@ export function useVideoExporter({ duration, forceRotate = true }: UseVideoExpor
         const url = URL.createObjectURL(blob);
         const a = document.createElement("a");
         a.href = url;
-        a.download = `snapto3d-video-${Date.now()}.webm`;
+        const extension = (recorder.mimeType || mimeType).startsWith("video/mp4") ? "mp4" : "webm";
+        a.download = `snapto3d-video-${Date.now()}.${extension}`;
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
@@ -149,11 +179,11 @@ export function useVideoExporter({ duration, forceRotate = true }: UseVideoExpor
           error: err instanceof Error ? err.message : "Recording failed",
         }));
       } finally {
-        if (shouldRestoreRotation) onRotateRestore?.();
+        if (shouldCleanup) onCaptureEnd?.();
         stream?.getTracks().forEach((track) => track.stop());
       }
     },
-    [duration, forceRotate]
+    [duration, format]
   );
 
   const cancelRecording = useCallback(() => {

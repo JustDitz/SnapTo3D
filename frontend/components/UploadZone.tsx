@@ -181,7 +181,7 @@ export default function UploadZone({ onUploadComplete }: UploadZoneProps) {
         className={`
           relative flex flex-col items-center justify-center
           w-full min-h-[220px] rounded-xl border-2 border-dashed
-          cursor-pointer transition-colors duration-200
+          cursor-pointer transition-colors duration-200 px-3
           ${
             isDragging
               ? "border-brand-500 bg-brand-500/10"

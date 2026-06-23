@@ -4,6 +4,7 @@ import React, { useRef, useEffect, forwardRef, useImperativeHandle } from "react
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
+import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -28,6 +29,8 @@ interface ThreeSceneProps {
   lighting: LightingSettings;
   /** Animation configuration */
   animation: AnimationSettings;
+  backgroundColor: string;
+  previewAspectRatio: number;
   onModelLoad?: () => void;
   onModelError?: (message: string) => void;
 }
@@ -38,6 +41,46 @@ export interface ThreeSceneHandle {
   getCanvas: () => HTMLCanvasElement | null;
   /** Export current model as OBJ text. Returns null if no model loaded. */
   exportOBJ: () => string | null;
+  prepareVideoCapture: (width: number, height: number) => void;
+  restoreViewerSize: () => void;
+}
+
+interface SceneContext {
+  renderer: THREE.WebGLRenderer;
+  scene: THREE.Scene;
+  camera: THREE.PerspectiveCamera;
+  controls: OrbitControls;
+  currentModel: THREE.Group | null;
+  dirLight: THREE.DirectionalLight;
+  shadowPlane: THREE.Mesh;
+  isCapturing: boolean;
+  animation: AnimationSettings;
+  modelSize: THREE.Vector3 | null;
+  captureCameraState: {
+    position: THREE.Vector3;
+    target: THREE.Vector3;
+    near: number;
+    far: number;
+  } | null;
+}
+
+function fitCameraToModel(ctx: SceneContext, padding = 1.28) {
+  if (!ctx.modelSize) return;
+
+  const halfVerticalFov = THREE.MathUtils.degToRad(ctx.camera.fov / 2);
+  const halfHorizontalFov = Math.atan(Math.tan(halfVerticalFov) * ctx.camera.aspect);
+  const halfRotatingWidth = Math.hypot(ctx.modelSize.x, ctx.modelSize.z) / 2;
+  const halfHeight = ctx.modelSize.y / 2;
+  const fitWidth = halfRotatingWidth / Math.tan(halfHorizontalFov);
+  const fitHeight = halfHeight / Math.tan(halfVerticalFov);
+  const distance = Math.max(fitWidth, fitHeight) * padding;
+  const direction = ctx.camera.position.clone().sub(ctx.controls.target).normalize();
+
+  ctx.camera.position.copy(ctx.controls.target).add(direction.multiplyScalar(distance));
+  ctx.camera.near = Math.max(distance / 100, 0.01);
+  ctx.camera.far = distance * 100;
+  ctx.camera.updateProjectionMatrix();
+  ctx.controls.update();
 }
 
 function disposeModel(model: THREE.Object3D) {
@@ -61,36 +104,54 @@ function disposeModel(model: THREE.Object3D) {
 // Uses raw Three.js (not R3F) for full lifecycle control and DOM compatibility.
 // ---------------------------------------------------------------------------
 const ThreeScene = forwardRef<ThreeSceneHandle, ThreeSceneProps>(
-  function ThreeScene({ modelUrl, lighting, animation, onModelLoad, onModelError }, ref) {
+  function ThreeScene({ modelUrl, lighting, animation, backgroundColor, previewAspectRatio, onModelLoad, onModelError }, ref) {
+    const wrapperRef = useRef<HTMLDivElement>(null);
     const containerRef = useRef<HTMLDivElement>(null);
-    const sceneRef = useRef<{
-      renderer: THREE.WebGLRenderer;
-      scene: THREE.Scene;
-      camera: THREE.PerspectiveCamera;
-      controls: OrbitControls;
-      animationId: number;
-      currentModel: THREE.Group | null;
-      dirLight: THREE.DirectionalLight;
-      shadowPlane: THREE.Mesh;
-      clock: THREE.Clock;
-    } | null>(null);
+    const sceneRef = useRef<SceneContext | null>(null);
+    const handleResizeRef = useRef<(() => void) | null>(null);
+    const previewAspectRatioRef = useRef(previewAspectRatio);
+
+    useEffect(() => {
+      previewAspectRatioRef.current = previewAspectRatio;
+    }, [previewAspectRatio]);
 
   // -------------------------------------------------------------------------
   // Initialize Three.js scene (runs once on mount)
   // -------------------------------------------------------------------------
   useEffect(() => {
     const container = containerRef.current;
-    if (!container) return;
+    const wrapper = wrapperRef.current;
+    if (!container || !wrapper) return;
 
     // --- Renderer ---
     const renderer = new THREE.WebGLRenderer({
       antialias: true,
       alpha: true,
+      powerPreference: "high-performance",
     });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-    renderer.setSize(container.clientWidth, container.clientHeight);
+
+    // Determine initial dimensions
+    const W_wrapper = wrapper.clientWidth;
+    const H_wrapper = wrapper.clientHeight;
+    let initW = W_wrapper || 300;
+    let initH = H_wrapper || 300;
+    if (W_wrapper && H_wrapper) {
+      if (W_wrapper / H_wrapper > previewAspectRatioRef.current) {
+        initH = H_wrapper;
+        initW = H_wrapper * previewAspectRatioRef.current;
+      } else {
+        initW = W_wrapper;
+        initH = W_wrapper / previewAspectRatioRef.current;
+      }
+    }
+    container.style.width = `${initW}px`;
+    container.style.height = `${initH}px`;
+    renderer.setSize(initW, initH);
+
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 1.2;
+    renderer.toneMappingExposure = 1.05;
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
     // Shadow mapping
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
@@ -98,51 +159,57 @@ const ThreeScene = forwardRef<ThreeSceneHandle, ThreeSceneProps>(
 
     // --- Scene ---
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x0a0a0f);
+    scene.background = new THREE.Color(backgroundColor);
+
+    const pmremGenerator = new THREE.PMREMGenerator(renderer);
+    const environmentTarget = pmremGenerator.fromScene(new RoomEnvironment(), 0.04);
+    scene.environment = environmentTarget.texture;
+    scene.environmentIntensity = 1.1;
+    pmremGenerator.dispose();
 
     // --- Camera ---
-    const aspect = container.clientWidth / container.clientHeight;
+    const aspect = initW / initH;
     const camera = new THREE.PerspectiveCamera(45, aspect, 0.1, 100);
     camera.position.set(0, 1.5, 4);
 
     // --- Lighting ---
-    // Ambient fill
-    const ambientLight = new THREE.AmbientLight(0xffffff, 0.4);
+    const ambientLight = new THREE.HemisphereLight(0xffffff, 0x64748b, 1.4);
     scene.add(ambientLight);
 
     // Key light (directional) — configurable via props
-    const dirLight = new THREE.DirectionalLight(0xffffff, 1.2);
+    const dirLight = new THREE.DirectionalLight(0xffffff, 3);
     dirLight.position.set(5, 8, 5);
     dirLight.castShadow = true;
-    dirLight.shadow.mapSize.width = 1024;
-    dirLight.shadow.mapSize.height = 1024;
+    dirLight.shadow.mapSize.width = 2048;
+    dirLight.shadow.mapSize.height = 2048;
     dirLight.shadow.camera.near = 0.5;
     dirLight.shadow.camera.far = 50;
     dirLight.shadow.camera.left = -5;
     dirLight.shadow.camera.right = 5;
     dirLight.shadow.camera.top = 5;
     dirLight.shadow.camera.bottom = -5;
+    dirLight.shadow.bias = -0.0005;
+    dirLight.shadow.normalBias = 0.03;
     scene.add(dirLight);
 
-    // Rim light from behind
-    const rimLight = new THREE.DirectionalLight(0x8888ff, 0.6);
-    rimLight.position.set(-3, 2, -5);
+    const fillLight = new THREE.DirectionalLight(0xc7d2fe, 1.6);
+    fillLight.position.set(-5, 4, 4);
+    scene.add(fillLight);
+
+    const rimLight = new THREE.DirectionalLight(0xffffff, 2);
+    rimLight.position.set(3, 5, -5);
     scene.add(rimLight);
 
     // --- Shadow-receiving floor plane ---
     const shadowPlane = new THREE.Mesh(
-      new THREE.PlaneGeometry(20, 20),
-      new THREE.ShadowMaterial({ opacity: 0.35 })
+      new THREE.PlaneGeometry(200, 200),
+      new THREE.ShadowMaterial({ opacity: 0.16, depthWrite: false })
     );
     shadowPlane.rotation.x = -Math.PI / 2;
-    shadowPlane.position.y = 0;
+    shadowPlane.position.y = -0.002;
     shadowPlane.receiveShadow = true;
     shadowPlane.visible = false; // hidden until shadow toggle is on
     scene.add(shadowPlane);
-
-    // --- Grid helper for visual grounding ---
-    const grid = new THREE.GridHelper(10, 20, 0x222233, 0x111122);
-    scene.add(grid);
 
     // --- OrbitControls ---
     const controls = new OrbitControls(camera, renderer.domElement);
@@ -156,25 +223,52 @@ const ThreeScene = forwardRef<ThreeSceneHandle, ThreeSceneProps>(
 
     // --- Animation loop ---
     const animate = () => {
-      const id = requestAnimationFrame(animate);
-      if (sceneRef.current) {
-        sceneRef.current.animationId = id;
+      const ctx = sceneRef.current;
+      const delta = clock.getDelta();
+      if (ctx?.animation.autoRotate && ctx.currentModel) {
+        ctx.currentModel.rotation.y += ctx.animation.rotationSpeed * delta;
       }
       controls.update();
       renderer.render(scene, camera);
     };
-    const animationId = requestAnimationFrame(animate);
+    renderer.setAnimationLoop(animate);
 
-    // --- Resize handler ---
-    const onResize = () => {
-      if (!container) return;
-      const w = container.clientWidth;
-      const h = container.clientHeight;
-      camera.aspect = w / h;
-      camera.updateProjectionMatrix();
-      renderer.setSize(w, h);
+    const handleResize = () => {
+      const ctx = sceneRef.current;
+      if (!ctx || ctx.isCapturing) return;
+      const currentWrapper = wrapperRef.current;
+      const currentContainer = containerRef.current;
+      if (!currentWrapper || !currentContainer) return;
+
+      const W_wrap = currentWrapper.clientWidth;
+      const H_wrap = currentWrapper.clientHeight;
+      if (!W_wrap || !H_wrap) return;
+
+      const ratio = previewAspectRatioRef.current;
+      let w = W_wrap;
+      let h = H_wrap;
+
+      if (W_wrap / H_wrap > ratio) {
+        h = H_wrap;
+        w = H_wrap * ratio;
+      } else {
+        w = W_wrap;
+        h = W_wrap / ratio;
+      }
+
+      currentContainer.style.width = `${w}px`;
+      currentContainer.style.height = `${h}px`;
+
+      ctx.camera.aspect = w / h;
+      ctx.camera.updateProjectionMatrix();
+      ctx.renderer.setSize(w, h);
+      fitCameraToModel(ctx);
     };
-    window.addEventListener("resize", onResize);
+
+    handleResizeRef.current = handleResize;
+
+    const resizeObserver = new ResizeObserver(handleResize);
+    resizeObserver.observe(wrapper);
 
     // Store refs for cleanup and model loading
     sceneRef.current = {
@@ -182,53 +276,43 @@ const ThreeScene = forwardRef<ThreeSceneHandle, ThreeSceneProps>(
       scene,
       camera,
       controls,
-      animationId,
       currentModel: null,
       dirLight,
       shadowPlane,
-      clock,
+      isCapturing: false,
+      animation,
+      modelSize: null,
+      captureCameraState: null,
     };
 
     // --- Cleanup on unmount ---
     return () => {
-      window.removeEventListener("resize", onResize);
-      cancelAnimationFrame(sceneRef.current?.animationId ?? animationId);
+      resizeObserver.disconnect();
+      renderer.setAnimationLoop(null);
       if (sceneRef.current?.currentModel) {
         disposeModel(sceneRef.current.currentModel);
       }
       controls.dispose();
       shadowPlane.geometry.dispose();
       (shadowPlane.material as THREE.Material).dispose();
+      environmentTarget.dispose();
       renderer.dispose();
       if (container.contains(renderer.domElement)) {
         container.removeChild(renderer.domElement);
       }
       sceneRef.current = null;
+      handleResizeRef.current = null;
     };
   }, []);
 
-  // -------------------------------------------------------------------------
-  // Auto-rotate: apply rotation each frame based on animation settings
-  // -------------------------------------------------------------------------
   useEffect(() => {
     const ctx = sceneRef.current;
-    if (!ctx) return;
+    if (ctx) ctx.animation = animation;
+  }, [animation]);
 
-    let rafId: number;
-    const rotateLoop = () => {
-      rafId = requestAnimationFrame(rotateLoop);
-      if (animation.autoRotate && ctx.currentModel) {
-        const delta = ctx.clock.getDelta();
-        ctx.currentModel.rotation.y += animation.rotationSpeed * delta;
-      } else {
-        // Reset clock so delta doesn't accumulate while paused
-        ctx.clock.getDelta();
-      }
-    };
-    rotateLoop();
-
-    return () => cancelAnimationFrame(rafId);
-  }, [animation.autoRotate, animation.rotationSpeed]);
+  useEffect(() => {
+    handleResizeRef.current?.();
+  }, [previewAspectRatio]);
 
   // -------------------------------------------------------------------------
   // Lighting: update directional light position & intensity from props
@@ -242,6 +326,11 @@ const ThreeScene = forwardRef<ThreeSceneHandle, ThreeSceneProps>(
     ctx.dirLight.castShadow = lighting.shadowEnabled;
     ctx.shadowPlane.visible = lighting.shadowEnabled;
   }, [lighting.posX, lighting.posY, lighting.posZ, lighting.intensity, lighting.shadowEnabled]);
+
+  useEffect(() => {
+    const ctx = sceneRef.current;
+    if (ctx) ctx.scene.background = new THREE.Color(backgroundColor);
+  }, [backgroundColor]);
 
   // Load / swap GLB model when modelUrl changes
   useEffect(() => {
@@ -276,9 +365,16 @@ const ThreeScene = forwardRef<ThreeSceneHandle, ThreeSceneProps>(
           disposeModel(ctx.currentModel);
         }
 
-        const scale = 2 / maxDim;
+        const scale = 2.4 / maxDim;
         model.scale.setScalar(scale);
-        model.position.sub(center.multiplyScalar(scale));
+        model.position.set(
+          -center.x * scale,
+          -box.min.y * scale,
+          -center.z * scale
+        );
+
+        const pivot = new THREE.Group();
+        pivot.add(model);
 
         // Enable shadow casting on all meshes
         model.traverse((child) => {
@@ -288,12 +384,17 @@ const ThreeScene = forwardRef<ThreeSceneHandle, ThreeSceneProps>(
           }
         });
 
-        ctx.scene.add(model);
-        ctx.currentModel = model;
+        ctx.scene.add(pivot);
+        ctx.currentModel = pivot;
 
-        // Reset camera target to model center
-        ctx.controls.target.set(0, size.y * scale * 0.5, 0);
-        ctx.controls.update();
+        const scaledHeight = size.y * scale;
+        ctx.modelSize = new THREE.Vector3(size.x, size.y, size.z).multiplyScalar(scale);
+        const target = new THREE.Vector3(0, scaledHeight * 0.48, 0);
+        const viewDirection = new THREE.Vector3(0.65, 0.28, 1).normalize();
+
+        ctx.camera.position.copy(target).add(viewDirection);
+        ctx.controls.target.copy(target);
+        fitCameraToModel(ctx);
         onModelLoad?.();
       },
       undefined,
@@ -312,6 +413,42 @@ const ThreeScene = forwardRef<ThreeSceneHandle, ThreeSceneProps>(
     // Expose canvas element and OBJ exporter to parent
     useImperativeHandle(ref, () => ({
       getCanvas: () => sceneRef.current?.renderer.domElement ?? null,
+      prepareVideoCapture: (width: number, height: number) => {
+        const ctx = sceneRef.current;
+        if (!ctx) return;
+
+        ctx.isCapturing = true;
+        ctx.captureCameraState = {
+          position: ctx.camera.position.clone(),
+          target: ctx.controls.target.clone(),
+          near: ctx.camera.near,
+          far: ctx.camera.far,
+        };
+        ctx.renderer.setPixelRatio(1);
+        ctx.renderer.setSize(width, height, false);
+        ctx.camera.aspect = width / height;
+        fitCameraToModel(ctx);
+        ctx.renderer.render(ctx.scene, ctx.camera);
+      },
+      restoreViewerSize: () => {
+        const ctx = sceneRef.current;
+        const container = containerRef.current;
+        if (!ctx || !container) return;
+
+        ctx.isCapturing = false;
+        ctx.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+        ctx.renderer.setSize(container.clientWidth, container.clientHeight);
+        if (ctx.captureCameraState) {
+          ctx.camera.position.copy(ctx.captureCameraState.position);
+          ctx.controls.target.copy(ctx.captureCameraState.target);
+          ctx.camera.near = ctx.captureCameraState.near;
+          ctx.camera.far = ctx.captureCameraState.far;
+          ctx.captureCameraState = null;
+        }
+        ctx.camera.aspect = container.clientWidth / container.clientHeight;
+        ctx.camera.updateProjectionMatrix();
+        ctx.controls.update();
+      },
       exportOBJ: (): string | null => {
         const ctx = sceneRef.current;
         if (!ctx?.currentModel) return null;
@@ -367,10 +504,15 @@ const ThreeScene = forwardRef<ThreeSceneHandle, ThreeSceneProps>(
 
     return (
       <div
-        ref={containerRef}
-        className="w-full h-full min-h-[400px] rounded-xl overflow-hidden bg-[var(--bg-secondary)]"
-        aria-label="3D model viewer"
-      />
+        ref={wrapperRef}
+        className="flex h-full min-h-0 w-full items-center justify-center overflow-hidden rounded-xl bg-black/30"
+      >
+        <div
+          ref={containerRef}
+          className="overflow-hidden rounded-lg bg-[var(--bg-secondary)]"
+          aria-label="3D model viewer"
+        />
+      </div>
     );
   }
 );

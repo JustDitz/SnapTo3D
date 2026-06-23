@@ -27,15 +27,14 @@ A web platform designed for Indonesian MSMEs (UMKM) to create 3D product present
 - **Flexible Input Flow** — Start from a product photo for AI reconstruction, or enter directly at the 3D model stage with an existing GLB file.
 - **AI-Powered 3D Reconstruction** — TripoSR neural network running on a serverless GPU (Modal Labs) converts a single image into a GLB mesh in ~15–30 seconds.
 - **Interactive 3D Viewer** — Three.js viewport with orbit controls (rotate, zoom, pan), auto-centering, ACES filmic tone mapping, and multi-light setup.
+- **Studio Presentation Controls** — Adjustable lighting, shadows, animation speed, and preset or custom background colors.
+- **Social-Ready Video Export** — Record in 16:9, 9:16, 1:1, or 4:5 at HD/Full HD as MP4 or WebM, based on browser support.
 - **Real-Time Task Polling** — Progress indicators track each pipeline stage from queue to completion.
 - **Responsive UI** — Dark-themed interface with a two-panel layout that adapts to mobile and desktop.
 
 ### Planned Features
 
-- Lighting controls (position, intensity, shadow toggle)
-- Animation controls (auto-rotate speed, duration)
-- GLB/OBJ export via Cloudflare R2 signed URLs
-- MP4 video export via MediaRecorder + ffmpeg.wasm (client-side, Web Worker)
+- Cloud storage and signed export URLs
 
 ## Architecture
 

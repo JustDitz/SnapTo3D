@@ -7,7 +7,10 @@ import ThreeScene from "@/components/ThreeScene";
 import type { LightingSettings, AnimationSettings, ThreeSceneHandle } from "@/components/ThreeScene";
 import LightingControls from "@/components/LightingControls";
 import AnimationControls from "@/components/AnimationControls";
+import type { VideoAspectRatio, VideoResolution } from "@/components/AnimationControls";
+import BackgroundControls from "@/components/BackgroundControls";
 import { useVideoExporter } from "@/hooks/useVideoExporter";
+import type { VideoFormat } from "@/hooks/useVideoExporter";
 
 // ---------------------------------------------------------------------------
 // Default settings
@@ -16,8 +19,8 @@ const DEFAULT_LIGHTING: LightingSettings = {
   posX: 5,
   posY: 8,
   posZ: 5,
-  intensity: 1.2,
-  shadowEnabled: false,
+  intensity: 3,
+  shadowEnabled: true,
 };
 
 const DEFAULT_ANIMATION: AnimationSettings = {
@@ -26,6 +29,21 @@ const DEFAULT_ANIMATION: AnimationSettings = {
 };
 
 type ModelStatus = "idle" | "loading" | "ready" | "error";
+
+const VIDEO_SIZES: Record<VideoResolution, Record<VideoAspectRatio, { width: number; height: number }>> = {
+  "720p": {
+    "16:9": { width: 1280, height: 720 },
+    "9:16": { width: 720, height: 1280 },
+    "1:1": { width: 720, height: 720 },
+    "4:5": { width: 720, height: 900 },
+  },
+  "1080p": {
+    "16:9": { width: 1920, height: 1080 },
+    "9:16": { width: 1080, height: 1920 },
+    "1:1": { width: 1080, height: 1080 },
+    "4:5": { width: 1080, height: 1350 },
+  },
+};
 
 // ---------------------------------------------------------------------------
 // Page: SnapTo3D Main Layout
@@ -39,15 +57,20 @@ export default function HomePage() {
   const [modelStatus, setModelStatus] = useState<ModelStatus>("idle");
   const [modelError, setModelError] = useState<string | null>(null);
   const [lighting, setLighting] = useState<LightingSettings>(DEFAULT_LIGHTING);
+  const [backgroundColor, setBackgroundColor] = useState("#e5e7eb");
   const [animation, setAnimation] = useState<AnimationSettings>(DEFAULT_ANIMATION);
   const [videoDuration, setVideoDuration] = useState(10);
+  const [videoResolution, setVideoResolution] = useState<VideoResolution>("1080p");
+  const [videoAspectRatio, setVideoAspectRatio] = useState<VideoAspectRatio>("16:9");
+  const [videoFormat, setVideoFormat] = useState<VideoFormat>("auto");
+  const videoSize = VIDEO_SIZES[videoResolution][videoAspectRatio];
 
   // Ref to access Three.js canvas for video capture
   const threeSceneRef = useRef<ThreeSceneHandle>(null);
   const localModelUrlRef = useRef<string | null>(null);
 
   // Video exporter hook
-  const videoExporter = useVideoExporter({ duration: videoDuration });
+  const videoExporter = useVideoExporter({ duration: videoDuration, format: videoFormat });
 
   const releaseLocalModelUrl = useCallback(() => {
     if (localModelUrlRef.current) {
@@ -141,22 +164,23 @@ export default function HomePage() {
     if (!threeSceneRef.current || modelStatus !== "ready") return;
     const getCanvas = () => threeSceneRef.current?.getCanvas() ?? null;
 
-    // Temporarily force auto-rotate during recording, then restore
     const prevAutoRotate = animation.autoRotate;
-    const onRotateOverride = () => {
+    const onCaptureStart = () => {
+      threeSceneRef.current?.prepareVideoCapture(videoSize.width, videoSize.height);
       setAnimation((prev) => ({ ...prev, autoRotate: true }));
     };
-    const onRotateRestore = () => {
+    const onCaptureEnd = () => {
+      threeSceneRef.current?.restoreViewerSize();
       setAnimation((prev) => ({ ...prev, autoRotate: prevAutoRotate }));
     };
 
-    videoExporter.startRecording(getCanvas, onRotateOverride, onRotateRestore);
-  }, [modelStatus, animation.autoRotate, videoExporter]);
+    videoExporter.startRecording(getCanvas, onCaptureStart, onCaptureEnd);
+  }, [modelStatus, videoSize, animation.autoRotate, videoExporter]);
 
   return (
-    <main className="min-h-screen flex flex-col">
+    <main className="min-h-screen lg:h-screen lg:max-h-screen lg:overflow-hidden flex flex-col bg-[var(--bg-primary)]">
       {/* Header */}
-      <header className="flex items-center justify-between px-6 py-4 border-b border-gray-800">
+      <header className="flex-shrink-0 flex items-center justify-between px-6 py-4 border-b border-gray-800">
         <div className="flex items-center gap-3">
           <div className="w-8 h-8 rounded-lg bg-brand-500 flex items-center justify-center">
             <span className="text-white font-bold text-sm">S3</span>
@@ -169,9 +193,9 @@ export default function HomePage() {
       </header>
 
       {/* Main content — responsive two-column layout */}
-      <div className="flex-1 flex flex-col lg:flex-row">
+      <div className="flex-1 flex flex-col lg:flex-row lg:overflow-hidden min-h-0">
         {/* Left panel: Upload + Controls */}
-        <aside className="w-full lg:w-[380px] xl:w-[420px] flex-shrink-0 border-b lg:border-b-0 lg:border-r border-gray-800 p-6 flex flex-col gap-6 overflow-y-auto max-h-[calc(100vh-57px)]">
+        <aside className="w-full lg:w-[380px] xl:w-[420px] flex-shrink-0 border-b lg:border-b-0 lg:border-r border-gray-800 p-6 flex flex-col gap-6 overflow-y-auto max-h-none lg:max-h-[calc(100vh-57px)]">
           <div>
             <h2 className="text-base font-medium text-gray-100">
               Foto → Model 3D → Video
@@ -279,12 +303,24 @@ export default function HomePage() {
           {/* Divider */}
           <hr className="border-gray-800" />
 
+          <BackgroundControls color={backgroundColor} onChange={setBackgroundColor} />
+
+          {/* Divider */}
+          <hr className="border-gray-800" />
+
           {/* Animation controls */}
           <AnimationControls
             settings={animation}
             onChange={setAnimation}
             videoDuration={videoDuration}
             onVideoDurationChange={setVideoDuration}
+            videoResolution={videoResolution}
+            onVideoResolutionChange={setVideoResolution}
+            videoAspectRatio={videoAspectRatio}
+            onVideoAspectRatioChange={setVideoAspectRatio}
+            videoFormat={videoFormat}
+            onVideoFormatChange={setVideoFormat}
+            outputSize={videoSize}
           />
 
           {/* Divider */}
@@ -361,13 +397,15 @@ export default function HomePage() {
         </aside>
 
         {/* Right panel: 3D Viewer */}
-        <section className="flex-1 p-4 lg:p-6 flex flex-col">
+        <section className="flex-1 p-4 lg:p-6 flex flex-col lg:overflow-hidden min-h-0">
           <div className="flex-1 min-h-[400px] lg:min-h-0">
             <ThreeScene
               ref={threeSceneRef}
               modelUrl={modelUrl}
               lighting={lighting}
               animation={animation}
+              backgroundColor={backgroundColor}
+              previewAspectRatio={videoSize.width / videoSize.height}
               onModelLoad={handleModelLoad}
               onModelError={handleModelError}
             />
