@@ -130,7 +130,12 @@ async def _run_inference(task: Task, image_bytes: bytes, photo_hash: str):
         _set_progress(task, f"Done — {len(glb_bytes) / 1024:.0f} KB GLB ready")
         _photo_cache[photo_hash] = task.glb_url
 
-    except Exception as e:
+    except BaseException as e:
+        if isinstance(e, asyncio.CancelledError):
+            task.status = "failed"
+            task.error = "Task was cancelled (server shutting down)."
+            task.progress = "Cancelled."
+            raise  # re-raise so asyncio can clean up properly
         task.status = "failed"
         task.error = str(e)
         task.progress = f"Failed: {e}"

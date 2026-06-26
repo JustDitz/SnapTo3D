@@ -105,7 +105,7 @@ def _preprocess_image(image_bytes: bytes):
 # ---------------------------------------------------------------------------
 # GPU CLASS: Mengamankan siklus hidup model di dalam kluster GPU cloud
 # ---------------------------------------------------------------------------
-@app.cls(image=image, gpu="T4", timeout=600)
+@app.cls(image=image, gpu="T4", timeout=600, container_idle_timeout=300)
 class TripoSRInference:
     @modal.enter()
     def load_model(self):
