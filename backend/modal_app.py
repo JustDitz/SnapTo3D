@@ -63,7 +63,12 @@ image = (
     .run_commands(
         "pip install 'git+https://github.com/tatsy/torchmcubes.git'",
     )
-    .env({"PYTHONPATH": "/opt/TripoSR"})
+    # Pre-download TripoSR weights into the image layer so cold start skips the 1.68GB download
+    .env({"HF_HOME": "/root/.cache/huggingface", "PYTHONPATH": "/opt/TripoSR"})
+    .run_commands(
+        "python -c \"from huggingface_hub import snapshot_download; snapshot_download('stabilityai/TripoSR')\"",
+    )
+    .env({"HF_HOME": "/root/.cache/huggingface", "PYTHONPATH": "/opt/TripoSR"})
 )
 
 
@@ -100,7 +105,7 @@ def _preprocess_image(image_bytes: bytes):
 # ---------------------------------------------------------------------------
 # GPU CLASS: Mengamankan siklus hidup model di dalam kluster GPU cloud
 # ---------------------------------------------------------------------------
-@app.cls(image=image, gpu="T4", timeout=120)
+@app.cls(image=image, gpu="T4", timeout=600)
 class TripoSRInference:
     @modal.enter()
     def load_model(self):
