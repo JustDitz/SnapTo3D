@@ -20,6 +20,7 @@ env/
 # Uploaded files (user uploads)
 backend/static/uploads/
 backend/static/generated/
+stock-image/
 
 # ===========================
 # Node.js / Frontend
