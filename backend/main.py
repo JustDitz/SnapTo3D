@@ -80,6 +80,7 @@ class Task:
         self.glb_url: str | None = None
         self.error: str | None = None
         self.progress: str = "Waiting in queue..."
+        self.modal_call = None  # FunctionCall handle — lets us cancel GPU work properly
 
 
 _tasks: dict[str, Task] = {}
@@ -107,14 +108,23 @@ async def _run_inference(task: Task, image_bytes: bytes, photo_hash: str):
         task.status = "processing"
 
         cls = modal.Cls.from_name(MODAL_APP_NAME, MODAL_CLASS_NAME)
-        _set_progress(task, "Modal connected — waiting for GPU container (cold start may take ~2 min)...")
+
+        # spawn() is non-blocking — returns a FunctionCall handle immediately.
+        # This lets us cancel the actual GPU computation when a new upload arrives,
+        # rather than just abandoning a thread that keeps running for 60s.
+        _set_progress(task, "Spawning GPU inference — warm container ~30s, cold start ~2min...")
+        call = await asyncio.to_thread(cls().inference_pipeline.spawn, image_bytes)
+        task.modal_call = call
+        _set_progress(task, "GPU container running inference...")
 
         try:
             glb_bytes = await asyncio.wait_for(
-                asyncio.to_thread(cls().inference_pipeline.remote, image_bytes),
+                asyncio.to_thread(call.get),
                 timeout=MODAL_TIMEOUT_SECONDS,
             )
         except asyncio.TimeoutError:
+            # Timed out waiting — cancel the Modal call to free the GPU container.
+            asyncio.create_task(asyncio.to_thread(call.cancel))
             raise RuntimeError(
                 f"Modal inference timed out after {MODAL_TIMEOUT_SECONDS}s. "
                 "Try again — container may need more time on cold start."
@@ -133,10 +143,13 @@ async def _run_inference(task: Task, image_bytes: bytes, photo_hash: str):
 
     except BaseException as e:
         if isinstance(e, asyncio.CancelledError):
+            # Properly cancel the GPU work so the container is freed immediately.
+            if task.modal_call:
+                asyncio.create_task(asyncio.to_thread(task.modal_call.cancel))
             task.status = "failed"
-            task.error = "Task was cancelled (server shutting down)."
+            task.error = "Cancelled — new photo uploaded."
             task.progress = "Cancelled."
-            raise  # re-raise so asyncio can clean up properly
+            raise  # re-raise so asyncio marks the task as cancelled
         task.status = "failed"
         task.error = str(e)
         task.progress = f"Failed: {e}"
