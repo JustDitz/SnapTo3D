@@ -10,8 +10,17 @@ Test:    uv run modal run modal_app.py::test_inference --input-path photo.jpg
 """
 
 import logging
+import sys
 from io import BytesIO
 import modal
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s — %(message)s",
+    datefmt="%H:%M:%S",
+    stream=sys.stdout,
+    force=True,
+)
 
 # ---------------------------------------------------------------------------
 # Modal App definition
@@ -23,27 +32,37 @@ app = modal.App("snapto3d-inference")
 # ---------------------------------------------------------------------------
 image = (
     modal.Image.from_registry("nvidia/cuda:12.1.1-devel-ubuntu22.04", add_python="3.11")
-    # Memasang perkakas kompiler sistem
     .apt_install("git", "ninja-build", "python3-pip", "build-essential", "clang")
-    # PyTorch dengan dukungan CUDA 12.1
     .pip_install(
         "torch==2.4.0",
         "torchvision==0.19.0",
         extra_index_url="https://download.pytorch.org/whl/cu121",
     )
-    # Pasang onnxruntime-gpu secara eksplisit untuk rembg
-    .pip_install("onnxruntime-gpu")
-    # Kloning repositori resmi TripoSR ke dalam folder opt
     .run_commands(
         "git clone https://github.com/VAST-AI-Research/TripoSR.git /opt/TripoSR",
     )
-    # PERBAIKAN MUTLAK: Paksa nvcc untuk mengompilasi arsitektur Turing (7.5 untuk T4), Ampere (8.0/8.6)
     .env({"TORCH_CUDA_ARCH_LIST": "7.5;8.0;8.6"})
-    # Pustaka torchmcubes kini akan dibangun dengan instruksi yang dipahami oleh GPU T4
-    .run_commands(
-        "pip install -r /opt/TripoSR/requirements.txt",
+    # Install only inference dependencies — skip gradio/imageio-ffmpeg (TripoSR web UI, unused here).
+    # onnxruntime-gpu pinned to 1.18.0: latest (2.x) requires CUDA 13, container has CUDA 12.1.1.
+    .pip_install(
+        "numpy<2",  # onnxruntime-gpu 1.18.0 compiled for NumPy 1.x; 2.x breaks _ARRAY_API
+        "omegaconf==2.3.0",
+        "Pillow==10.1.0",
+        "einops==0.7.0",
+        "transformers==4.35.0",
+        "trimesh==4.0.5",
+        "huggingface-hub==0.17.3",
+        "imageio==2.33.1",
+        "xatlas==0.0.9",
+        "moderngl==5.10.0",
+        "onnxruntime-gpu==1.18.0",
+        "rembg==2.0.57",
+        "scipy",
+        "scikit-image",
     )
-    # Mendaftarkan tsr ke dalam variabel path environment Python
+    .run_commands(
+        "pip install 'git+https://github.com/tatsy/torchmcubes.git'",
+    )
     .env({"PYTHONPATH": "/opt/TripoSR"})
 )
 
@@ -85,11 +104,15 @@ def _preprocess_image(image_bytes: bytes):
 class TripoSRInference:
     @modal.enter()
     def load_model(self):
-        """Memuat bobot model sekali saja saat penampung pertama kali dinyalakan (Cold Start)"""
         import torch
         from tsr.system import TSR
 
-        logging.info("[TripoSR] Loading model weights from HuggingFace...")
+        log = logging.getLogger("modal.load_model")
+        log.info("Container cold start — loading TripoSR weights from HuggingFace...")
+        log.info(f"CUDA available: {torch.cuda.is_available()}")
+        if torch.cuda.is_available():
+            log.info(f"GPU: {torch.cuda.get_device_name(0)}")
+
         self.model = TSR.from_pretrained(
             "stabilityai/TripoSR",
             config_name="config.yaml",
@@ -97,43 +120,66 @@ class TripoSRInference:
         )
         self.model.renderer.set_chunk_size(8192)
         self.model.to("cuda:0")
-        logging.info("[TripoSR] Model successfully loaded on cuda:0")
+        log.info("Model loaded on cuda:0 — container warm, ready for inference")
 
     @modal.method()
     def inference_pipeline(self, image_bytes: bytes) -> bytes:
-        """Eksekusi konversi gambar mentah menjadi model 3D biner (.GLB)"""
+        import time
         import torch
         import tempfile
         import os
 
-        logging.info("[Pipeline] Starting inference pipeline...")
+        log = logging.getLogger("modal.inference")
+        t0 = time.time()
 
-        # Pembersihan background secara lokal di dalam container
-        logging.info("[Pipeline] Preprocessing image (rembg)...")
-        processed_image = _preprocess_image(image_bytes)
+        def elapsed() -> str:
+            return f"{time.time() - t0:.1f}s"
 
-        # Proses inferensi neural network TripoSR
-        logging.info("[Pipeline] Running TripoSR model...")
-        with torch.no_grad():
-            scene_codes = self.model([processed_image], device="cuda:0")
+        log.info(f"[{elapsed()}] Pipeline start — image size: {len(image_bytes) / 1024:.1f} KB")
 
-        # Ekstraksi bentuk geometri menggunakan algoritma marching cubes
-        logging.info("[Pipeline] Extracting mesh (marching cubes)...")
-        meshes = self.model.extract_mesh(scene_codes, True, resolution=256)
+        log.info(f"[{elapsed()}] Step 1/4: Preprocessing (rembg background removal)...")
+        try:
+            processed_image = _preprocess_image(image_bytes)
+            log.info(f"[{elapsed()}] Step 1/4 done — image: {processed_image.size}")
+        except Exception as e:
+            log.error(f"[{elapsed()}] Step 1/4 FAILED: {e}")
+            raise
 
-        # Ekspor bentuk geometri ke dalam berkas GLB temporer
-        logging.info("[Pipeline] Exporting GLB...")
+        log.info(f"[{elapsed()}] Step 2/4: TripoSR inference on GPU...")
+        try:
+            with torch.no_grad():
+                scene_codes = self.model([processed_image], device="cuda:0")
+            log.info(f"[{elapsed()}] Step 2/4 done")
+        except Exception as e:
+            log.error(f"[{elapsed()}] Step 2/4 FAILED: {e}")
+            raise
+
+        log.info(f"[{elapsed()}] Step 3/4: Mesh extraction (marching cubes, res=256)...")
+        try:
+            meshes = self.model.extract_mesh(scene_codes, True, resolution=256)
+            log.info(f"[{elapsed()}] Step 3/4 done — {len(meshes)} mesh(es)")
+        except Exception as e:
+            log.error(f"[{elapsed()}] Step 3/4 FAILED: {e}")
+            raise
+
+        log.info(f"[{elapsed()}] Step 4/4: Exporting GLB...")
+        import numpy as np
+        import trimesh.transformations as tf
+        # TripoSR outputs in camera-relative coords — rotate -90° around X to stand upright
+        meshes[0].apply_transform(tf.rotation_matrix(-np.pi / 2, [1, 0, 0]))
         tmp_path = tempfile.mktemp(suffix=".glb")
         try:
             meshes[0].export(tmp_path, file_type="glb")
             with open(tmp_path, "rb") as f:
                 glb_bytes = f.read()
+        except Exception as e:
+            log.error(f"[{elapsed()}] Step 4/4 FAILED: {e}")
+            raise
         finally:
             if os.path.exists(tmp_path):
                 os.remove(tmp_path)
 
-        size_kb = len(glb_bytes) / 1024
-        logging.info(f"[Pipeline] Done! GLB size: {size_kb:.1f} KB")
+        log.info(f"[{elapsed()}] Pipeline complete — GLB: {len(glb_bytes) / 1024:.1f} KB")
         return glb_bytes
 
 
