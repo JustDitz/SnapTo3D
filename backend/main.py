@@ -84,6 +84,7 @@ class Task:
 
 _tasks: dict[str, Task] = {}
 _photo_cache: dict[str, str] = {}  # sha256 → glb_url
+_current_inference_task: asyncio.Task | None = None  # only one inference at a time
 
 # ---------------------------------------------------------------------------
 # Allowed image types
@@ -194,12 +195,20 @@ async def upload_image(file: UploadFile = File(...)):
     upload_dir.mkdir(exist_ok=True)
     (upload_dir / unique_name).write_bytes(contents)
 
+    global _current_inference_task
+
+    # Cancel any in-flight inference before starting a new one.
+    # Prevents concurrent Modal calls from conflicting on the same GPU container.
+    if _current_inference_task and not _current_inference_task.done():
+        log.info("New upload received — cancelling previous in-flight inference")
+        _current_inference_task.cancel()
+
     task_id = uuid.uuid4().hex
     task = Task(task_id)
     _tasks[task_id] = task
 
     log.info(f"New task created — id={task_id[:8]} file={unique_name}")
-    asyncio.create_task(_run_inference(task, contents, photo_hash))
+    _current_inference_task = asyncio.create_task(_run_inference(task, contents, photo_hash))
 
     return JSONResponse(
         content={
