@@ -159,7 +159,7 @@ const ThreeScene = forwardRef<ThreeSceneHandle, ThreeSceneProps>(
 
     // --- Scene ---
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color(backgroundColor);
+    scene.background = backgroundColor === "transparent" ? null : new THREE.Color(backgroundColor);
 
     const pmremGenerator = new THREE.PMREMGenerator(renderer);
     const environmentTarget = pmremGenerator.fromScene(new RoomEnvironment(), 0.04);
@@ -329,7 +329,7 @@ const ThreeScene = forwardRef<ThreeSceneHandle, ThreeSceneProps>(
 
   useEffect(() => {
     const ctx = sceneRef.current;
-    if (ctx) ctx.scene.background = new THREE.Color(backgroundColor);
+    if (ctx) ctx.scene.background = backgroundColor === "transparent" ? null : new THREE.Color(backgroundColor);
   }, [backgroundColor]);
 
   // Load / swap GLB model when modelUrl changes
