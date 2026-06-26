@@ -63,10 +63,13 @@ image = (
     .run_commands(
         "pip install 'git+https://github.com/tatsy/torchmcubes.git'",
     )
-    # Pre-download TripoSR weights into the image layer so cold start skips the 1.68GB download
+    # Pre-download weights into the image layer — cold start skips all downloads
     .env({"HF_HOME": "/root/.cache/huggingface", "PYTHONPATH": "/opt/TripoSR"})
     .run_commands(
+        # TripoSR weights (1.68GB)
         "python -c \"from huggingface_hub import snapshot_download; snapshot_download('stabilityai/TripoSR')\"",
+        # rembg u2net background-removal model (~170MB) — bake so it's not downloaded per inference
+        "python -c \"import rembg; rembg.new_session('u2net')\"",
     )
     .env({"HF_HOME": "/root/.cache/huggingface", "PYTHONPATH": "/opt/TripoSR"})
 )
@@ -75,17 +78,11 @@ image = (
 # ---------------------------------------------------------------------------
 # Preprocessing helper: background removal + foreground resize
 # ---------------------------------------------------------------------------
-def _preprocess_image(image_bytes: bytes):
-    """
-    Remove background and resize foreground to fit TripoSR input.
-    Returns a PIL Image with gray background, ready for model.
-    """
+def _preprocess_image(image_bytes: bytes, rembg_session):
     import numpy as np
     from PIL import Image
-    import rembg
     from tsr.utils import remove_background, resize_foreground
 
-    rembg_session = rembg.new_session()
     pil_image = Image.open(BytesIO(image_bytes)).convert("RGB")
 
     # Tahap 1: Penghapusan latar belakang otomatis
@@ -110,13 +107,19 @@ class TripoSRInference:
     @modal.enter()
     def load_model(self):
         import torch
+        import rembg
         from tsr.system import TSR
 
         log = logging.getLogger("modal.load_model")
-        log.info("Container cold start — loading TripoSR weights from HuggingFace...")
+        log.info("Container cold start — loading models...")
         log.info(f"CUDA available: {torch.cuda.is_available()}")
         if torch.cuda.is_available():
             log.info(f"GPU: {torch.cuda.get_device_name(0)}")
+
+        # Load rembg session once — reused across all inferences on this container
+        log.info("Loading rembg u2net session...")
+        self.rembg_session = rembg.new_session("u2net")
+        log.info("rembg session ready")
 
         self.model = TSR.from_pretrained(
             "stabilityai/TripoSR",
@@ -125,7 +128,7 @@ class TripoSRInference:
         )
         self.model.renderer.set_chunk_size(8192)
         self.model.to("cuda:0")
-        log.info("Model loaded on cuda:0 — container warm, ready for inference")
+        log.info("TripoSR loaded on cuda:0 — container warm, ready for inference")
 
     @modal.method()
     def inference_pipeline(self, image_bytes: bytes) -> bytes:
@@ -144,7 +147,7 @@ class TripoSRInference:
 
         log.info(f"[{elapsed()}] Step 1/4: Preprocessing (rembg background removal)...")
         try:
-            processed_image = _preprocess_image(image_bytes)
+            processed_image = _preprocess_image(image_bytes, self.rembg_session)
             log.info(f"[{elapsed()}] Step 1/4 done — image: {processed_image.size}")
         except Exception as e:
             log.error(f"[{elapsed()}] Step 1/4 FAILED: {e}")
