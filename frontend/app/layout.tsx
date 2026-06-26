@@ -1,8 +1,8 @@
 import type { Metadata } from "next";
 import { JetBrains_Mono } from "next/font/google";
+import { GeistMono } from "geist/font/mono";
 import "./globals.css";
 
-// Load JetBrains Mono for technical/metadata text (per PRD spec)
 const jetbrainsMono = JetBrains_Mono({
   subsets: ["latin"],
   variable: "--font-mono",
@@ -21,8 +21,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="id" className={jetbrainsMono.variable}>
-      {/* Pindahkan suppressHydrationWarning ke tag body karena di sinilah ekstensi menyuntikkan kodenya */}
+    <html lang="id" className={`${GeistMono.variable} ${jetbrainsMono.variable}`}>
       <body className="antialiased" suppressHydrationWarning>
         {children}
       </body>

@@ -9,7 +9,7 @@
   --text-secondary: #a0a0b0;
   --accent: #4c6ef5;
   /* PRD font stack */
-  --font-sans: 'Geist Mono', ui-monospace, monospace;
+  --font-sans: var(--font-geist-mono), ui-monospace, monospace;
   --font-serif: serif;
   /* --font-mono is injected by next/font in layout.tsx */
 }

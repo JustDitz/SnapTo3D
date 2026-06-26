@@ -18,7 +18,7 @@ const config: Config = {
         },
       },
       fontFamily: {
-        sans: ["Geist Mono", "ui-monospace", "monospace"],
+        sans: ["var(--font-geist-mono)", "ui-monospace", "monospace"],
         mono: ["var(--font-mono)", "JetBrains Mono", "monospace"],
       },
     },
