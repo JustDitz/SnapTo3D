@@ -166,7 +166,7 @@ export default function UploadZone({ onUploadComplete }: UploadZoneProps) {
   );
 
   return (
-    <div className="flex flex-col gap-4 w-full">
+    <div className="flex flex-col gap-3 w-full">
       {/* Drop zone */}
       <div
         role="button"
@@ -180,16 +180,15 @@ export default function UploadZone({ onUploadComplete }: UploadZoneProps) {
         }}
         className={`
           relative flex flex-col items-center justify-center
-          w-full min-h-[220px] rounded-xl border-2 border-dashed
-          cursor-pointer transition-colors duration-200 px-3
+          w-full min-h-[160px] rounded-lg border border-dashed
+          cursor-pointer transition-colors duration-150 px-3
           ${
             isDragging
-              ? "border-brand-500 bg-brand-500/10"
-              : "border-gray-600 hover:border-gray-400 bg-[var(--bg-secondary)]"
+              ? "border-brand-500 bg-brand-500/5"
+              : "border-[var(--border)] hover:border-[#2a2a38] bg-[var(--bg-surface)]"
           }
         `}
       >
-        {/* Hidden file input */}
         <input
           ref={inputRef}
           type="file"
@@ -199,91 +198,52 @@ export default function UploadZone({ onUploadComplete }: UploadZoneProps) {
           aria-label="Upload product image"
         />
 
-        {/* Upload icon */}
-        <svg
-          className="w-10 h-10 mb-3 text-gray-400"
-          fill="none"
-          stroke="currentColor"
-          viewBox="0 0 24 24"
-        >
-          <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            strokeWidth={1.5}
-            d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"
-          />
+        <svg className="w-8 h-8 mb-2 text-[var(--text-muted)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
+            d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
         </svg>
 
-        <p className="text-sm text-gray-300 font-medium">
-          {isDragging ? "Lepaskan gambar di sini" : "Seret & lepas gambar produk"}
+        <p className="text-sm text-[var(--text-primary)] font-medium">
+          {isDragging ? "Drop image here" : "Drop product photo"}
         </p>
-        <p className="text-xs text-gray-500 mt-1">
-          atau klik untuk memilih file (JPEG, PNG, WebP — maks 10 MB)
+        <p className="text-xs text-[var(--text-secondary)] mt-0.5">
+          JPEG · PNG · WebP — max 10 MB
         </p>
 
-        {/* Loading overlay */}
         {isUploading && (
-          <div className="absolute inset-0 flex items-center justify-center bg-black/60 rounded-xl">
-            <div className="flex flex-col items-center gap-2">
-              <div className="w-8 h-8 border-2 border-brand-500 border-t-transparent rounded-full animate-spin" />
-              <span className="text-sm text-gray-200">Mengunggah...</span>
+          <div className="absolute inset-0 flex items-center justify-center bg-[var(--bg-primary)]/70 rounded-lg">
+            <div className="flex items-center gap-2">
+              <div className="w-4 h-4 border border-brand-500 border-t-transparent rounded-full animate-spin" />
+              <span className="text-xs text-[var(--text-secondary)]">Uploading...</span>
             </div>
           </div>
         )}
       </div>
 
-      {/* Background recommendation hint */}
-      <div className="flex items-start gap-2 px-3 py-2 rounded-lg bg-amber-900/15 border border-amber-800/20">
-        <svg className="w-4 h-4 text-amber-400 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-            d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-        </svg>
-        <p className="text-xs text-amber-300/80 leading-relaxed">
-          <span className="font-medium text-amber-300">Tips:</span> Gunakan foto dengan latar belakang polos (putih/abu-abu) untuk hasil rekonstruksi 3D terbaik.
-        </p>
-      </div>
-
-      {/* Preview thumbnail + filename */}
+      {/* Preview + status */}
       {preview && (
-        <div className="flex items-center gap-3 p-3 rounded-lg bg-[var(--bg-secondary)]">
-          <img
-            src={preview}
-            alt="Preview"
-            className="w-14 h-14 object-cover rounded-md flex-shrink-0"
-          />
-          <div className="flex flex-col min-w-0">
-            <span className="text-sm text-gray-200 truncate">{fileName}</span>
-            <span className="text-xs text-green-400">Berhasil diunggah</span>
+        <div className="flex items-center gap-3 p-2.5 rounded-lg bg-[var(--bg-surface)] border border-[var(--border)]">
+          <img src={preview} alt="Preview" className="w-10 h-10 object-cover rounded flex-shrink-0" />
+          <div className="flex flex-col min-w-0 flex-1">
+            <span className="text-xs text-[var(--text-primary)] truncate">{fileName}</span>
+            {taskId && taskStatus && taskStatus !== "done" && (
+              <span className="text-[11px] text-brand-400 truncate">{taskProgress || "Queued..."}</span>
+            )}
+            {taskStatus === "done" && (
+              <span className="text-[11px] text-green-400">Model ready</span>
+            )}
+            {!taskId && (
+              <span className="text-[11px] text-[var(--text-secondary)]">Uploaded</span>
+            )}
           </div>
+          {taskId && taskStatus && taskStatus !== "done" && (
+            <div className="w-3.5 h-3.5 border border-brand-400 border-t-transparent rounded-full animate-spin flex-shrink-0" />
+          )}
         </div>
       )}
 
-      {/* Processing status */}
-      {taskId && taskStatus && taskStatus !== "done" && (
-        <div className="flex items-center gap-3 p-3 rounded-lg bg-brand-900/20 border border-brand-800/30">
-          <div className="w-5 h-5 border-2 border-brand-400 border-t-transparent rounded-full animate-spin flex-shrink-0" />
-          <div className="flex flex-col min-w-0">
-            <span className="text-sm text-brand-200 font-medium">
-              Generating 3D...
-            </span>
-            <span className="text-xs text-brand-400 truncate">{taskProgress}</span>
-          </div>
-        </div>
-      )}
-
-      {/* Success status */}
-      {taskStatus === "done" && (
-        <div className="flex items-center gap-3 p-3 rounded-lg bg-green-900/20 border border-green-800/30">
-          <svg className="w-5 h-5 text-green-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-          </svg>
-          <span className="text-sm text-green-300">Model 3D berhasil dibuat!</span>
-        </div>
-      )}
-
-      {/* Error message */}
       {error && (
-        <p className="text-sm text-red-400 px-1">{error}</p>
+        <p className="text-xs text-red-400 px-0.5">{error}</p>
       )}
     </div>
   );

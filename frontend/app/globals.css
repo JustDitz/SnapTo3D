@@ -3,15 +3,17 @@
 @tailwind utilities;
 
 :root {
-  --bg-primary: #0a0a0f;
-  --bg-secondary: #12121a;
-  --text-primary: #f0f0f5;
-  --text-secondary: #a0a0b0;
+  --bg-primary: #09090e;
+  --bg-secondary: #0f0f16;
+  --bg-surface: #13131c;
+  --border: #1a1a26;
+  --border-subtle: #141420;
+  --text-primary: #ededf0;
+  --text-secondary: #6b6b7b;
+  --text-muted: #3d3d50;
   --accent: #4c6ef5;
-  /* PRD font stack */
   --font-sans: var(--font-geist-mono), ui-monospace, monospace;
   --font-serif: serif;
-  /* --font-mono is injected by next/font in layout.tsx */
 }
 
 body {

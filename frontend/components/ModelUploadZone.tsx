@@ -63,12 +63,12 @@ export default function ModelUploadZone({ onModelSelected }: ModelUploadZoneProp
           setIsDragging(false);
         }}
         onDrop={handleDrop}
-        className={`relative flex min-h-[140px] w-full cursor-pointer flex-col items-center
-                    justify-center rounded-xl border-2 border-dashed transition-colors duration-200
+        className={`relative flex min-h-[100px] w-full cursor-pointer flex-col items-center
+                    justify-center rounded-lg border border-dashed transition-colors duration-150
                     ${
                       isDragging
-                        ? "border-brand-500 bg-brand-500/10"
-                        : "border-gray-600 bg-[var(--bg-secondary)] hover:border-gray-400"
+                        ? "border-brand-500 bg-brand-500/5"
+                        : "border-[var(--border)] bg-[var(--bg-surface)] hover:border-[#2a2a38]"
                     }`}
       >
         <input
@@ -84,27 +84,22 @@ export default function ModelUploadZone({ onModelSelected }: ModelUploadZoneProp
           aria-label="Upload GLB model"
         />
 
-        <svg className="mb-2 h-8 w-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <svg className="mb-1.5 h-6 w-6 text-[var(--text-muted)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
             d="M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16zM3.27 6.96L12 12.01l8.73-5.05M12 22.08V12" />
         </svg>
-        <p className="text-sm font-medium text-gray-300">
-          {isDragging ? "Lepaskan model di sini" : "Sudah punya model 3D? Upload di sini"}
+        <p className="text-sm font-medium text-[var(--text-primary)] text-center">
+          {isDragging ? "Drop GLB here" : "Upload existing GLB"}
         </p>
-        <p className="mt-1 text-xs text-gray-500">
-          File GLB — maks 50 MB
+        <p className="mt-0.5 text-xs text-[var(--text-secondary)] text-center">
+          GLB · max 50 MB
         </p>
       </div>
 
       {fileName && !error && (
-        <div className="flex items-center gap-3 rounded-lg bg-[var(--bg-secondary)] p-3">
-          <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-md bg-brand-500/10 text-xs font-semibold text-brand-300">
-            GLB
-          </div>
-          <div className="min-w-0">
-            <p className="truncate text-sm text-gray-200">{fileName}</p>
-            <p className="text-xs text-green-400">File dipilih</p>
-          </div>
+        <div className="flex items-center gap-2.5 rounded-lg bg-[var(--bg-surface)] border border-[var(--border)] px-2.5 py-2">
+          <span className="text-[10px] font-semibold text-brand-400 bg-brand-500/10 px-1.5 py-0.5 rounded flex-shrink-0">GLB</span>
+          <p className="truncate text-xs text-[var(--text-primary)]">{fileName}</p>
         </div>
       )}
 
