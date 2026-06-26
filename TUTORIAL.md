@@ -32,7 +32,7 @@ Buka terminal baru, dari folder `backend/`:
 
 ```
 cd backend
-python -m uvicorn main:app --reload --port 8000
+python -m uvicorn main:app --port 8000
 ```
 
 Backend jalan di `http://localhost:8000`.  
