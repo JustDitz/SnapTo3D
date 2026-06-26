@@ -325,7 +325,7 @@ export default function HomePage() {
           {/* Controls hint */}
           <div className="mt-auto px-4 py-3 border-t border-[var(--border)]">
             <p className="text-[10px] text-[var(--text-muted)]">
-              Drag — rotate · Scroll — zoom · Right drag — pan
+              Drag: rotate · Scroll: zoom · Right drag: pan
             </p>
           </div>
         </aside>

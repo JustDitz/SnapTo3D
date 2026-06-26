@@ -207,7 +207,7 @@ export default function UploadZone({ onUploadComplete }: UploadZoneProps) {
           {isDragging ? "Drop image here" : "Drop product photo"}
         </p>
         <p className="text-xs text-[var(--text-secondary)] mt-0.5">
-          JPEG · PNG · WebP — max 10 MB
+          JPEG · PNG · WebP · max 10 MB
         </p>
 
         {isUploading && (

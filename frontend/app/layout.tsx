@@ -10,7 +10,7 @@ const jetbrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "SnapTo3D — 3D Product Presentation for UMKM",
+  title: "SnapTo3D: 3D Product Presentation for UMKM",
   description:
     "Upload a product photo and get an interactive 3D model. Built for Indonesian MSMEs.",
 };
